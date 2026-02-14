@@ -4,17 +4,17 @@ import matplotlib.pyplot as plt
 import io
 import os
 from dotenv import load_dotenv
-from openai import OpenAI
+from groq import Groq
 
 # Load environment variables
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("GROQ_API_KEY")
 
 if not api_key:
-    st.error("Please set OPENAI_API_KEY in a .env file.")
+    st.error("Please set GROQ_API_KEY in a .env file.")
     st.stop()
 
-client = OpenAI(api_key=api_key)
+client = Groq(api_key=api_key)
 
 st.set_page_config(page_title="AI Data Analyst", layout="wide")
 st.title("📊 Personal AI Data Analyst")
@@ -66,7 +66,7 @@ Columns in df: {list(df.columns)}
 
             try:
                 completion = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="llama3-8b-8192",
                     messages=[
                         {"role": "system", "content": "You write safe, concise pandas/matplotlib code for data analysis."},
                         {"role": "user", "content": prompt},
@@ -77,7 +77,7 @@ Columns in df: {list(df.columns)}
                 code = completion.choices[0].message.content
 
             except Exception as e:
-                st.error(f"Error from OpenAI: {e}")
+                st.error(f"Error from Groq API: {e}")
                 st.stop()
 
         st.write("### 🧠 Generated code")
