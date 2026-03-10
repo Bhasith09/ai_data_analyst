@@ -25,3 +25,22 @@ def generate_summary(df):
             summary_text=summary_text+f"Mean : {df[i].mean():.2f},Median: {df[i].median():.2f}\n"
         summary_text=summary_text+ f" Sample: {df[i].dropna().head().tolist()}\n\n"   
     return summary_text
+
+def get_llama_embedding(text):
+    url= "https://api.groq.com/v1/embeddings"
+    headers={"Authorization": f"Bearer {GROQ_API_KEY}"}
+    payload={"model": "llama-3.1-8b-instant", "input": text}
+    response=requests.post(url,json=payload,headers=headers).json()
+    return np.array(response["data"][0]["embedding"], dtype=np.float32)
+
+def chunk_text(text,max_chars=1000):
+    return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+
+
+# Build FAISS index
+def build_faiss_index(chunks):
+    dim = len(chunks[0]['embedding'])
+    index = faiss.IndexFlatL2(dim)
+    embeddings = np.array([c['embedding'] for c in chunks])
+    index.add(embeddings)
+    return index
