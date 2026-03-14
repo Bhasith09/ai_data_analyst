@@ -19,22 +19,21 @@ if not GROQ_API_KEY:
 # 1️⃣ Prepare visualization DataFrame
 # -----------------------------
 def visual_df(df):
-    df_copy = df.copy()
-    for col in df_copy.select_dtypes(include=['int64', 'float64']):
-        df_copy[col] = df_copy[col].fillna(df_copy[col].median())
+    df_copy = df.copy()#copy of the original document to prevent altration of the og one
+    for col in df_copy.select_dtypes(include=['int64', 'float64']):#include only float and integers
+        df_copy[col] = df_copy[col].fillna(df_copy[col].median())#fill the nan with median
     return df_copy
-
 # -----------------------------
 # 2️⃣ Generate dataset summary (raw)
 # -----------------------------
-def generate_summary(df):
+def generate_summary(df):#follows three steps
     summary_text = ""
     for col in df.columns:
         summary_text += f"Column: {col}\n"
-        summary_text += f"Type: {df[col].dtype}, Missing: {df[col].isna().sum()}, Unique: {df[col].nunique()}\n"
+        summary_text += f"Type: {df[col].dtype}, Missing: {df[col].isna().sum()}, Unique: {df[col].nunique()}\n" #get the datatype, null value, and the unique value
         if df[col].dtype in ['int64', 'float64']:
             summary_text += f"Mean: {df[col].mean():.2f}, Median: {df[col].median():.2f}, Min: {df[col].min():.2f}, Max: {df[col].max():.2f}\n"
-        summary_text += f"Sample: {df[col].dropna().head(5).tolist()}\n\n"
+        summary_text += f"Sample: {df[col].dropna().head(5).tolist()}\n\n"# displays the first 5 rows
     return summary_text
 
 # -----------------------------
