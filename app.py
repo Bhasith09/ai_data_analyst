@@ -36,95 +36,60 @@ def generate_summary(df):#follows three steps
         summary_text += f"Sample: {df[col].dropna().head(5).tolist()}\n\n"# displays the first 5 rows
     return summary_text
 
-# -----------------------------
-# 3️⃣ Get embeddings via Groq LLaMA API
-# -----------------------------
-def get_llama_embedding(text):
-    url = "https://api.groq.com/v1/embeddings"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-    payload = {"model": "llama-3.1-8b-instant", "input": text}
 
-    response = requests.post(url, json=payload, headers=headers).json()
+#generate the document of the dataset to store to chromadb
 
-    if "data" not in response or len(response["data"]) == 0:
-        st.error(f"Error fetching embedding: {response}")
-        return np.zeros(1536, dtype=np.float32)  # fallback zero vector
+from langchain.docstore.document import Document
+def create_document_from_df(df):
+    document=[]#document object created to store the documents created from the dataset
+    for _, row in df.iterrows():#iterates or visits every row without visiting the column name and index
+        metadata={col:row[0] for col in df.columns } #meta data is created for refernce to llm model if it need to get extra information and if it needs to filter
+        content=" | ".join([str(val) for val in row.values])#main thing which the llm looks for to generate the answer is the content which is created by joining all the values of the row with a separator " | "
+        doc=Document(page_content=content, metadata=metadata)#so now to store values in doc and thepredefined values like page_content and metadata
+        document.append(doc)#finally append the doc into the documnet list made 
+    return document #print the document
 
-    return np.array(response["data"][0]["embedding"], dtype=np.float32)
 
-# -----------------------------
-# 4️⃣ FAISS RAG store
-# -----------------------------
-def chunk_text(text, max_chars=1000):
-    return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
 
-def build_faiss_index(chunks):
-    dim = len(chunks[0]['embedding'])
-    index = faiss.IndexFlatL2(dim)
-    embeddings = np.array([c['embedding'] for c in chunks])
-    index.add(embeddings)
-    return index
+# now embedding the documents created from dataset to store to chromaDB
+from langchain.vectorstores import Chroma  #to store to chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings#to embedding the vectors
 
-def retrieve_context(query, chunks, index, top_k=3):
-    q_emb = get_llama_embedding(query)
-    D, I = index.search(np.array([q_emb]), top_k)
-    return "\n".join(chunks[i]['text'] for i in I[0])
+hg_embeddings=HuggingFaceEmbeddings()#loaded the embedding model
+persist_directory="/content/chroma_db"#set the location to store the db
+def create_embedding(document):
+    embedding_from_document=Chroma.from_document(
+    document=document,#provide document name created eqarlier in document attribute
+    collection_name="df",#give the og_dataset name
+    embedding=hg_embeddings,#give the embedding model called
+    persist_directory=persist_directory#say the location made to store
+    )
+print("Chroma DB created and embeddings generated successfully.")
 
-# -----------------------------
-# 5️⃣ Ask question via LLaMA
-# -----------------------------
-def ask_llama(question, context):
-    url = "https://api.groq.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"Dataset context:\n{context}\n\nQuestion: {question}\nAnswer:"
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [
-            {"role": "system", "content": "You are a helpful AI data analyst."},
-            {"role": "user", "content": prompt}
-        ]
-    }
-    response = requests.post(url, json=payload, headers=headers).json()
-    return response["choices"][0]["message"]["content"]
 
-# -----------------------------
-# 6️⃣ Streamlit UI
-# -----------------------------
-st.title("📊 AI Data Analyst")
+from torch import cuda, bfloat16, float16
+import transformers
+from transformers import AutoTokenizer
+from langchain.llms import HuggingFacePipeline
+from sentence_transformers import SentenceTransformer
+from time import time
 
-uploaded_file = st.file_uploader("Upload CSV Dataset", type=["csv"])
-if uploaded_file:
-    # Raw dataset (never altered)
-    raw_df = pd.read_csv(uploaded_file)
-    st.write("### Raw Dataset (Original)")
-    st.dataframe(raw_df.head())
 
-    # Visualization dataset (numeric missing values filled)
-    viz_df = visual_df(raw_df)
+model_id=SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")  #model name
+device=f" cuda:{cuda.current_device()}" if cuda.is_available() else "cpu" #check if gpu is available and set the device accordingly
 
-    # Generate summary from raw data
-    summary = generate_summary(raw_df)
-    st.write("### Dataset Summary")
-    st.text(summary)
+bnb_config=transformers.BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=bfloat16,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4"
+)
+model=transformers.AutoModelForCausalLM.from_pretrained(
+    model_id,
+    trust_remote_code=True,
+    quantization_config=bnb_config,
+    device_map="auto"
+)
 
-    # Create RAG index
-    chunked_texts = chunk_text(summary)
-    chunks = [{"text": t, "embedding": get_llama_embedding(t)} for t in chunked_texts]
-    index = build_faiss_index(chunks)
-    st.write("✅ RAG index built using FAISS")
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Q&A
-    st.write("### Ask Questions about Your Dataset")
-    question = st.text_input("Enter your question here:")
-    if question:
-        context = retrieve_context(question, chunks, index)
-        answer = ask_llama(question, context)
-        st.write("💡 Answer:")
-        st.write(answer)
-
-    # Visualization
-    st.write("### Data Visualization")
-    numeric_cols = viz_df.select_dtypes(include=['int64','float64']).columns.tolist()
-    if numeric_cols:
-        col_to_plot = st.selectbox("Select numeric column:", numeric_cols)
-        st.bar_chart(viz_df[col_to_plot])
